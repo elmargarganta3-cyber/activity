@@ -20,9 +20,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  getDianaResponse, 
+  getDianaResponseAndAudio,
   getCoachingAnalysis, 
-  generateDianaSpeech, 
   playPCM 
 } from './lib/gemini';
 import { Message, CoachingData } from './types';
@@ -59,7 +58,7 @@ export default function App() {
   // Initial greeting audio
   useEffect(() => {
     if (!isMuted && messages.length === 1) {
-      generateDianaSpeech(messages[0].content, 70).then(audio => {
+      getDianaResponseAndAudio(messages, 70).then(({ audio }) => {
         if (audio) playPCM(audio);
       });
     }
@@ -78,19 +77,18 @@ export default function App() {
     setLoading(true);
 
     try {
-      // 1. Get Diana's text response
-      const dianaText = await getDianaResponse(updatedMessages, frustration);
-      const assistantMessage: Message = { role: 'assistant', content: dianaText };
+      // 1. Get Diana's combined text and audio response
+      const { text, audio } = await getDianaResponseAndAudio(updatedMessages, frustration);
+      
+      const assistantMessage: Message = { role: 'assistant', content: text };
       const finalMessages = [...updatedMessages, assistantMessage];
       
       setMessages(finalMessages);
       setLoading(false);
 
-      // 2. Background: Speech synthesis
-      if (!isMuted) {
-        generateDianaSpeech(dianaText, frustration).then(audio => {
-          if (audio) playPCM(audio);
-        });
+      // 2. Immediate Audio playback
+      if (!isMuted && audio) {
+        playPCM(audio);
       }
 
       // 3. Background: Coaching Analysis
@@ -101,7 +99,7 @@ export default function App() {
           setSuggestions(analysis.suggestions);
 
           // Resolution check: If frustration is low and Diana is thanking/appreciating
-          const lowerText = dianaText.toLowerCase();
+          const lowerText = text.toLowerCase();
           if (analysis.frustrationScore < 30 && (lowerText.includes('thank') || lowerText.includes('appreciate') || lowerText.includes('helped'))) {
             setIsResolved(true);
           }
