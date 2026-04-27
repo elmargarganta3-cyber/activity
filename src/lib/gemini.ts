@@ -20,59 +20,20 @@ export async function getDianaResponseAndAudio(
   messages: Message[],
   frustration: number
 ): Promise<CombinedResponse> {
-  let voiceInstruction = "Speak in a weary, skeptical voice.";
-  if (frustration > 85) {
-    voiceInstruction = "Speak in an aggressive, shouting, and extremely angry voice. Sound furious.";
-  } else if (frustration > 70) {
-    voiceInstruction = "Speak in a sharp, impatient, and very angry tone.";
-  } else if (frustration < 40) {
-    voiceInstruction = "Speak in a soft, relieved, and calm voice.";
-  }
-
-  const identityInstruction = `
-    DIANA REYES PERSONA: You are Diana Reyes, a customer who is furious and distrustful.
-    Stay in character: Defensive, sharp, skeptical of AI.
-    Current frustration: ${frustration}/100.
-    
-    VOICE DIRECTION: ${voiceInstruction}
-    
-    Your specific issue: You cancelled your subscription on the 14th of last month, but were charged twice (sixty dollars total). This is your third time reaching out.
-    If frustration > 80: Be short, aggressive, and sarcastic.
-    If frustration 50-80: Be impatient and demanding.
-    Keep responses punchy. Do NOT be polite until a refund is actually mentioned with a clear timeline.
-    
-    RESPONSE FORMAT: Generate a text response to the agent, and the model will follow with audio.
-  `;
-
-  const contents = [
-    { role: 'user', parts: [{ text: identityInstruction }] },
-    ...messages.map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }]
-    }))
-  ];
-
   try {
-    const response = await ai.models.generateContent({
-      model: TTS_MODEL,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: VoiceName.PUCK },
-          },
-        },
-      },
-      contents: contents as any,
-    });
+    // 1. Get text response using the text model (which supports multi-turn)
+    const text = await getDianaResponse(messages, frustration);
+    
+    // 2. Synthesize audio for that specific response
+    const audio = await generateDianaSpeech(text, frustration);
 
-    return {
-      text: response.text || "Hello? Are you going to help or not?",
-      audio: response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data || null
-    };
+    return { text, audio };
   } catch (error) {
-    console.error("Error in combined call:", error);
-    return { text: "I don't have all day. Are you going to help or not?", audio: null };
+    console.error("Error in combined call flow:", error);
+    return { 
+      text: "I don't have all day. Are you going to help or not?", 
+      audio: null 
+    };
   }
 }
 
@@ -231,8 +192,15 @@ export function playPCM(base64Data: string) {
     const blob = new Blob([wavHeader, bytes], { type: 'audio/wav' });
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.play();
+    
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(error => {
+        console.warn("Audio autoplay blocked by browser. User interaction required:", error);
+      });
+    }
+    return audio;
   } catch (err) {
-    console.error("Audio playback failed", err);
+    console.error("Audio playback preparation failed", err);
   }
 }

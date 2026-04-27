@@ -40,6 +40,7 @@ export default function App() {
   const [coachingTip, setCoachingTip] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   const historyNotes = [
     "Oct 15: Customer called regarding cancellation. Agent promised follow-up.",
@@ -55,18 +56,20 @@ export default function App() {
     }
   }, [messages, coachingTip, suggestions]);
 
-  // Initial greeting audio
+  // Initial greeting audio - only after interaction
   useEffect(() => {
-    if (!isMuted && messages.length === 1) {
+    if (hasInteracted && !isMuted && messages.length === 1) {
       getDianaResponseAndAudio(messages, 70).then(({ audio }) => {
         if (audio) playPCM(audio);
       });
     }
-  }, []);
+  }, [hasInteracted]);
 
   const handleSend = async (customInput?: string) => {
     const input = customInput || userInput;
     if (!input.trim() || loading || isResolved) return;
+    
+    if (!hasInteracted) setHasInteracted(true);
 
     const userMessage: Message = { role: 'user', content: input };
     const updatedMessages = [...messages, userMessage];
@@ -228,6 +231,34 @@ export default function App() {
 
         {/* Main Simulation Viewport */}
         <main className="flex-1 flex flex-col relative">
+          {/* Autoplay Interaction Overlay */}
+          <AnimatePresence>
+            {!hasInteracted && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl px-6"
+              >
+                <div className="max-w-md w-full bg-[#111] border border-white/10 rounded-3xl p-8 text-center shadow-2xl">
+                  <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30">
+                    <ShieldAlert size={40} className="text-red-500 animate-pulse" />
+                  </div>
+                  <h2 className="text-2xl font-black text-white mb-2 tracking-tight">CRISIS SIMULATION</h2>
+                  <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+                    Customer Diana Reyes is on the line. She has been double-charged $60 and is extremely frustrated. Connect to begin the de-escalation training.
+                  </p>
+                  <button 
+                    onClick={() => setHasInteracted(true)}
+                    className="w-full py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] shadow-red-600/20 active:scale-95"
+                  >
+                    Connect to Call
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Atmospheric Background Elements */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
             <div className={`absolute top-0 right-0 w-[600px] h-[600px] rounded-full blur-[120px] transition-colors duration-1000 ${frustration > 85 ? 'bg-red-500/10' : 'bg-red-900/5'}`}></div>
@@ -262,13 +293,34 @@ export default function App() {
             
             {loading && (
               <div className="flex justify-start">
-                <div className="flex items-center gap-4">
-                  <div className="flex gap-1.5">
-                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1 }} className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]"></motion.span>
-                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]"></motion.span>
-                    <motion.span animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]"></motion.span>
+                <div className="flex items-center gap-4 bg-white/5 px-6 py-4 rounded-full border border-white/10 backdrop-blur-md shadow-xl">
+                  <div className="flex gap-2">
+                    {[0, 1, 2].map((dot) => (
+                      <motion.div
+                        key={dot}
+                        animate={{ 
+                          scale: [1, 1.4, 1],
+                          opacity: [0.4, 1, 0.4],
+                          backgroundColor: frustration > 85 ? ['#ef4444', '#f87171', '#ef4444'] : ['#6366f1', '#818cf8', '#6366f1']
+                        }}
+                        transition={{ 
+                          repeat: Infinity, 
+                          duration: 1, 
+                          delay: dot * 0.2,
+                          ease: "easeInOut"
+                        }}
+                        className="w-2.5 h-2.5 rounded-full shadow-[0_0_10px_currentColor]"
+                        style={{ color: frustration > 85 ? '#ef4444' : '#6366f1' }}
+                      />
+                    ))}
                   </div>
-                  <span className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em] animate-pulse">Inbound Response...</span>
+                  <motion.span 
+                    animate={{ opacity: [0.6, 1, 0.6] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className={`text-[10px] font-black uppercase tracking-[0.25em] ${frustration > 85 ? 'text-red-500' : 'text-indigo-400'}`}
+                  >
+                    Diana is typing...
+                  </motion.span>
                 </div>
               </div>
             )}
