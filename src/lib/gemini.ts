@@ -140,7 +140,7 @@ export async function generateDianaSpeech(
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: VoiceName.PUCK },
+            prebuiltVoiceConfig: { voiceName: VoiceName.KORE },
           },
         },
       },

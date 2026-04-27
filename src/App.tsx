@@ -16,7 +16,10 @@ import {
   VolumeX,
   AlertCircle,
   Clock,
-  ShieldAlert
+  ShieldAlert,
+  Mic,
+  MicOff,
+  Headset
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -41,6 +44,9 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const recognitionRef = useRef<any>(null);
 
   const historyNotes = [
     "Oct 15: Customer called regarding cancellation. Agent promised follow-up.",
@@ -64,6 +70,45 @@ export default function App() {
       });
     }
   }, [hasInteracted]);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setUserInput(transcript);
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+      };
+    }
+  }, []);
+
+  const toggleRecording = () => {
+    if (!recognitionRef.current) {
+      alert('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current.stop();
+    } else {
+      setIsRecording(true);
+      recognitionRef.current.start();
+    }
+  };
 
   const handleSend = async (customInput?: string) => {
     const input = customInput || userInput;
@@ -203,6 +248,21 @@ export default function App() {
             </div>
           </section>
 
+          <section>
+            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.25em] mb-6 flex items-center gap-3">
+              <div className="w-1 h-3 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div> Active Session
+            </h3>
+            <div className="p-4 bg-white/5 border border-white/10 rounded-xl flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+                <Headset size={20} className="text-indigo-400" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-white font-black uppercase tracking-tight">Agent 402 (You)</span>
+                <span className="text-[9px] text-emerald-500 font-bold uppercase">Online & Operational</span>
+              </div>
+            </div>
+          </section>
+
           <section className="mt-auto">
             <AnimatePresence mode="wait">
               {coachingTip && (
@@ -274,18 +334,25 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-[80%] group`}>
-                  <div className={`flex items-center gap-3 mb-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    {m.role !== 'user' && <span className="text-[10px] font-black text-red-400 uppercase tracking-widest pl-1">Diana Reyes</span>}
-                    <span className="text-[10px] text-slate-600 font-bold">14:0{i + 2} PM</span>
-                    {m.role === 'user' && <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest pr-1">Agent (You)</span>}
+                <div className={`max-w-[80%] group flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div className={`flex-shrink-0 mt-6`}>
+                    <div className={`w-8 h-8 rounded-full border border-white/10 flex items-center justify-center ${m.role === 'user' ? 'bg-indigo-500/20' : 'bg-white/5'}`}>
+                      {m.role === 'user' ? <Headset size={14} className="text-indigo-400" /> : <User size={14} className="text-slate-400" />}
+                    </div>
                   </div>
-                  <div className={`p-6 rounded-2xl shadow-2xl backdrop-blur-md transition-all border ${
-                    m.role === 'user' 
-                      ? 'bg-indigo-600/10 border-indigo-500/30 rounded-tr-none' 
-                      : `bg-white/5 rounded-tl-none ${frustration > 85 ? 'border-red-500/30 shadow-red-500/5' : 'border-white/10'}`
-                  }`}>
-                    <p className="text-sm leading-relaxed text-slate-200 font-semibold">{m.content}</p>
+                  <div className="flex-1">
+                    <div className={`flex items-center gap-3 mb-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {m.role !== 'user' && <span className="text-[10px] font-black text-red-400 uppercase tracking-widest pl-1">Diana Reyes</span>}
+                      <span className="text-[10px] text-slate-600 font-bold">14:0{i + 2} PM</span>
+                      {m.role === 'user' && <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest pr-1">Agent (You)</span>}
+                    </div>
+                    <div className={`p-6 rounded-2xl shadow-2xl backdrop-blur-md transition-all border ${
+                      m.role === 'user' 
+                        ? 'bg-indigo-600/10 border-indigo-500/30 rounded-tr-none' 
+                        : `bg-white/5 rounded-tl-none ${frustration > 85 ? 'border-red-500/30 shadow-red-500/5' : 'border-white/10'}`
+                    }`}>
+                      <p className="text-sm leading-relaxed text-slate-200 font-semibold">{m.content}</p>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -380,8 +447,17 @@ export default function App() {
                 onChange={(e) => setUserInput(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                 placeholder="Secure terminal communication link..."
-                className="w-full bg-white/5 border border-white/15 rounded-2xl px-8 py-6 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 focus:bg-white/10 transition-all pr-20 placeholder:text-slate-600 shadow-2xl backdrop-blur-md"
+                className="w-full bg-white/5 border border-white/15 rounded-2xl px-8 py-6 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 focus:bg-white/10 transition-all pr-36 placeholder:text-slate-600 shadow-2xl backdrop-blur-md"
               />
+              <div className="absolute right-20 top-4 flex gap-2">
+                <button
+                  onClick={toggleRecording}
+                  className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all border ${isRecording ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                  title={isRecording ? 'Stop Recording' : 'Start Voice Input'}
+                >
+                  {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                </button>
+              </div>
               <button
                 onClick={() => handleSend()}
                 disabled={!userInput.trim()}
