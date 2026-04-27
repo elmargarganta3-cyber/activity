@@ -23,28 +23,57 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  getDianaResponseAndAudio,
+  getCustomerResponseAndAudio,
   getCoachingAnalysis, 
   playPCM 
 } from './lib/gemini';
-import { Message, CoachingData } from './types';
-
-const INITIAL_MESSAGE: Message = { 
-  role: 'assistant', 
-  content: "Hello? Is this a real person this time or am I talking to another one of those useless 'digital assistants'? Look, I've already wasted two lunch breaks trying to sort this out. I cancelled my subscription on the 14th of last month—I have the confirmation email right here—and yet, I look at my bank statement this morning and I've been charged twice. That's sixty dollars total. Are you going to actually fix this, or am I just wasting my breath for a third time?" 
-};
+import { Message, CoachingData, Scenario } from './types';
+import { SCENARIOS } from './scenarios';
 
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const currentScenario = SCENARIOS.find(s => s.id === selectedScenarioId) || SCENARIOS[0];
+
+  const getTimestamp = () => {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [frustration, setFrustration] = useState(70);
+  const [frustration, setFrustration] = useState(currentScenario.initialFrustration);
   const [isResolved, setIsResolved] = useState(false);
   const [coachingTip, setCoachingTip] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+
+  // Set initial message when scenario is first loaded or changed
+  useEffect(() => {
+    if (!selectedScenarioId) {
+      setMessages([{ 
+        role: 'assistant', 
+        content: currentScenario.initialMessage,
+        timestamp: getTimestamp()
+      }]);
+    }
+  }, []);
+
+  // Update initial state when scenario changes
+  const selectScenario = (scenario: Scenario) => {
+    setSelectedScenarioId(scenario.id);
+    setMessages([{ 
+      role: 'assistant', 
+      content: scenario.initialMessage,
+      timestamp: getTimestamp()
+    }]);
+    setFrustration(scenario.initialFrustration);
+    setIsResolved(false);
+    setCoachingTip('');
+    setSuggestions([]);
+    setHasInteracted(true);
+  };
 
   const recognitionRef = useRef<any>(null);
 
@@ -65,11 +94,11 @@ export default function App() {
   // Initial greeting audio - only after interaction
   useEffect(() => {
     if (hasInteracted && !isMuted && messages.length === 1) {
-      getDianaResponseAndAudio(messages, 70).then(({ audio }) => {
+      getCustomerResponseAndAudio(messages, frustration, currentScenario).then(({ audio }) => {
         if (audio) playPCM(audio);
       });
     }
-  }, [hasInteracted]);
+  }, [hasInteracted, selectedScenarioId]);
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -82,6 +111,11 @@ export default function App() {
       recognitionRef.current.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
         setUserInput(transcript);
+        setIsRecording(false); // Stop UI recording state after finding a result
+      };
+
+      recognitionRef.current.onspeechend = () => {
+        recognitionRef.current.stop();
         setIsRecording(false);
       };
 
@@ -104,6 +138,7 @@ export default function App() {
 
     if (isRecording) {
       recognitionRef.current.stop();
+      setIsRecording(false);
     } else {
       setIsRecording(true);
       recognitionRef.current.start();
@@ -116,7 +151,7 @@ export default function App() {
     
     if (!hasInteracted) setHasInteracted(true);
 
-    const userMessage: Message = { role: 'user', content: input };
+    const userMessage: Message = { role: 'user', content: input, timestamp: getTimestamp() };
     const updatedMessages = [...messages, userMessage];
     
     setMessages(updatedMessages);
@@ -125,10 +160,10 @@ export default function App() {
     setLoading(true);
 
     try {
-      // 1. Get Diana's combined text and audio response
-      const { text, audio } = await getDianaResponseAndAudio(updatedMessages, frustration);
+      // 1. Get customer response
+      const { text, audio } = await getCustomerResponseAndAudio(updatedMessages, frustration, currentScenario);
       
-      const assistantMessage: Message = { role: 'assistant', content: text };
+      const assistantMessage: Message = { role: 'assistant', content: text, timestamp: getTimestamp() };
       const finalMessages = [...updatedMessages, assistantMessage];
       
       setMessages(finalMessages);
@@ -140,7 +175,7 @@ export default function App() {
       }
 
       // 3. Background: Coaching Analysis
-      getCoachingAnalysis(finalMessages).then((analysis: CoachingData | null) => {
+      getCoachingAnalysis(finalMessages, currentScenario).then((analysis: CoachingData | null) => {
         if (analysis) {
           setFrustration(analysis.frustrationScore);
           setCoachingTip(analysis.coachingTip);
@@ -176,19 +211,19 @@ export default function App() {
           <div className="relative">
             <div className={`w-14 h-14 rounded-full border-2 p-0.5 transition-all duration-500 ${frustration > 85 ? 'border-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'border-white/10'}`}>
               <div className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-500 ${frustration > 85 ? 'bg-gradient-to-tr from-red-600 to-red-400' : 'bg-white/5'}`}>
-                <User className={frustration > 85 ? 'text-white' : 'text-slate-400'} size={24} />
+                {currentScenario.id === 'marcus-chen' ? <ShieldAlert className={frustration > 85 ? 'text-white' : 'text-slate-400'} size={24} /> : <User className={frustration > 85 ? 'text-white' : 'text-slate-400'} size={24} />}
               </div>
             </div>
             <div className={`absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 rounded-full border-2 border-black transition-colors ${frustration > 85 ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></div>
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white leading-tight">Diana Reyes</h1>
+            <h1 className="text-xl font-bold tracking-tight text-white leading-tight">{currentScenario.customerName}</h1>
             <div className="flex items-center gap-3 mt-1">
-              <span className={`text-[10px] border px-2 py-0.5 rounded font-black uppercase tracking-tighter transition-colors ${frustration > 85 ? 'bg-red-500/20 text-red-500 border-red-500/30' : 'bg-white/5 text-slate-500 border-white/10'}`}>
-                Priority: {frustration > 85 ? 'CRITICAL' : 'Standard'}
+              <span className={`text-[10px] border px-2 py-0.5 rounded font-black uppercase tracking-tighter transition-colors ${frustration > 85 || currentScenario.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-500 border-red-500/30' : 'bg-white/5 text-slate-500 border-white/10'}`}>
+                Priority: {currentScenario.priority}
               </span>
               <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1">
-                <Clock size={10} /> Tier 3 Escalation
+                <Clock size={10} /> {currentScenario.title}
               </span>
             </div>
           </div>
@@ -234,7 +269,7 @@ export default function App() {
               <div className="w-1 h-3 bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]"></div> CRM Archive
             </h3>
             <div className="space-y-4">
-              {historyNotes.map((note, i) => (
+              {currentScenario.crmHistory.map((note, i) => (
                 <motion.div 
                   key={i} 
                   initial={{ opacity: 0, x: -10 }}
@@ -291,29 +326,57 @@ export default function App() {
 
         {/* Main Simulation Viewport */}
         <main className="flex-1 flex flex-col relative">
-          {/* Autoplay Interaction Overlay */}
+          {/* Autoplay & Scenario Selection Overlay */}
           <AnimatePresence>
             {!hasInteracted && (
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-2xl px-6"
+                className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-2xl px-6"
               >
-                <div className="max-w-md w-full bg-[#111] border border-white/10 rounded-3xl p-8 text-center shadow-2xl">
-                  <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30">
-                    <ShieldAlert size={40} className="text-red-500 animate-pulse" />
+                <div className="max-w-4xl w-full bg-[#111] border border-white/10 rounded-[2.5rem] p-10 text-center shadow-2xl">
+                  <div className="w-24 h-24 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/30">
+                    <ShieldAlert size={48} className="text-red-500 animate-pulse" />
                   </div>
-                  <h2 className="text-2xl font-black text-white mb-2 tracking-tight">CRISIS SIMULATION</h2>
-                  <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-                    Customer Diana Reyes is on the line. She has been double-charged $60 and is extremely frustrated. Connect to begin the de-escalation training.
+                  <h2 className="text-4xl font-black text-white mb-4 tracking-tighter uppercase italic">Crisis Command Center</h2>
+                  <p className="text-slate-400 text-lg mb-12 max-w-2xl mx-auto leading-relaxed">
+                    Select a high-priority customer scenario to begin your de-escalation training. All sessions are recorded for analysis.
                   </p>
-                  <button 
-                    onClick={() => setHasInteracted(true)}
-                    className="w-full py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] shadow-red-600/20 active:scale-95"
-                  >
-                    Connect to Call
-                  </button>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mb-12">
+                    {SCENARIOS.map((scenario) => (
+                      <motion.button
+                        key={scenario.id}
+                        whileHover={{ y: -5, scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => selectScenario(scenario)}
+                        className="group relative p-6 bg-white/5 border border-white/10 rounded-3xl hover:bg-white/10 hover:border-indigo-500/50 transition-all overflow-hidden flex flex-col h-full"
+                      >
+                        <div className={`absolute top-0 right-0 w-32 h-32 blur-[40px] opacity-20 -mr-16 -mt-16 transition-colors ${scenario.priority === 'CRITICAL' ? 'bg-red-500' : scenario.priority === 'High' ? 'bg-orange-500' : 'bg-indigo-500'}`}></div>
+                        
+                        <div className="flex justify-between items-start mb-4">
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border ${scenario.priority === 'CRITICAL' ? 'border-red-500/40 text-red-400 bg-red-500/10' : scenario.priority === 'High' ? 'border-orange-500/40 text-orange-400 bg-orange-500/10' : 'border-indigo-500/40 text-indigo-400 bg-indigo-500/10'}`}>
+                            {scenario.priority}
+                          </span>
+                          <User size={16} className="text-slate-600 group-hover:text-white transition-colors" />
+                        </div>
+                        
+                        <h3 className="text-white font-black text-xl mb-2 tracking-tight">{scenario.customerName}</h3>
+                        <p className="text-xs text-indigo-400 font-bold uppercase tracking-widest mb-4">{scenario.title}</p>
+                        <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed mb-6 group-hover:text-slate-300 transition-colors">
+                          {scenario.description}
+                        </p>
+                        
+                        <div className="mt-auto flex items-center gap-2 group-hover:gap-3 transition-all pt-4 border-t border-white/5">
+                          <span className="text-[10px] font-black text-white uppercase tracking-widest">Connect Call</span>
+                          <Send size={12} className="text-indigo-500" />
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.4em]">System Ready. Voice Feed Active. Monitoring Initialized.</p>
                 </div>
               </motion.div>
             )}
@@ -335,23 +398,27 @@ export default function App() {
                 className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div className={`max-w-[80%] group flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                  <div className={`flex-shrink-0 mt-6`}>
-                    <div className={`w-8 h-8 rounded-full border border-white/10 flex items-center justify-center ${m.role === 'user' ? 'bg-indigo-500/20' : 'bg-white/5'}`}>
-                      {m.role === 'user' ? <Headset size={14} className="text-indigo-400" /> : <User size={14} className="text-slate-400" />}
+                  <div className={`flex-shrink-0 mt-8`}>
+                    <div className={`w-10 h-10 rounded-2xl border transition-all shadow-lg flex items-center justify-center ${
+                      m.role === 'user' 
+                        ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400' 
+                        : 'bg-white/5 border-white/10 text-slate-400'
+                    }`}>
+                      {m.role === 'user' ? <Headset size={18} /> : <User size={18} />}
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <div className={`flex items-center gap-3 mb-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      {m.role !== 'user' && <span className="text-[10px] font-black text-red-400 uppercase tracking-widest pl-1">Diana Reyes</span>}
-                      <span className="text-[10px] text-slate-600 font-bold">14:0{i + 2} PM</span>
-                      {m.role === 'user' && <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest pr-1">Agent (You)</span>}
+                  <div className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex items-center gap-3 mb-2 px-1`}>
+                      {m.role !== 'user' && <span className="text-[10px] font-black text-red-400 uppercase tracking-[0.2em]">{currentScenario.customerName}</span>}
+                      {m.role === 'user' && <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Agent (You)</span>}
+                      <span className="text-[9px] text-slate-600 font-bold uppercase tracking-widest">{m.timestamp}</span>
                     </div>
-                    <div className={`p-6 rounded-2xl shadow-2xl backdrop-blur-md transition-all border ${
+                    <div className={`p-6 rounded-3xl shadow-2xl backdrop-blur-md transition-all border group-hover:scale-[1.01] ${
                       m.role === 'user' 
                         ? 'bg-indigo-600/10 border-indigo-500/30 rounded-tr-none' 
-                        : `bg-white/5 rounded-tl-none ${frustration > 85 ? 'border-red-500/30 shadow-red-500/5' : 'border-white/10'}`
+                        : `bg-white/5 rounded-tl-none ${frustration > 85 ? 'border-red-500/40 shadow-red-500/10' : 'border-white/10'}`
                     }`}>
-                      <p className="text-sm leading-relaxed text-slate-200 font-semibold">{m.content}</p>
+                      <p className="text-sm leading-relaxed text-slate-200 font-semibold selection:bg-indigo-500/30">{m.content}</p>
                     </div>
                   </div>
                 </div>
@@ -386,7 +453,7 @@ export default function App() {
                     transition={{ repeat: Infinity, duration: 2 }}
                     className={`text-[10px] font-black uppercase tracking-[0.25em] ${frustration > 85 ? 'text-red-500' : 'text-indigo-400'}`}
                   >
-                    Diana is typing...
+                    {currentScenario.customerName} is typing...
                   </motion.span>
                 </div>
               </div>
@@ -450,13 +517,26 @@ export default function App() {
                 className="w-full bg-white/5 border border-white/15 rounded-2xl px-8 py-6 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 focus:bg-white/10 transition-all pr-36 placeholder:text-slate-600 shadow-2xl backdrop-blur-md"
               />
               <div className="absolute right-20 top-4 flex gap-2">
-                <button
-                  onClick={toggleRecording}
-                  className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all border ${isRecording ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
-                  title={isRecording ? 'Stop Recording' : 'Start Voice Input'}
-                >
-                  {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-                </button>
+                <div className="relative">
+                  <AnimatePresence>
+                    {isRecording && (
+                      <motion.div
+                        initial={{ scale: 0.8, opacity: 0.5 }}
+                        animate={{ scale: 1.8, opacity: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ repeat: Infinity, duration: 1.5, ease: "easeOut" }}
+                        className="absolute inset-0 bg-red-500 rounded-xl z-0"
+                      />
+                    )}
+                  </AnimatePresence>
+                  <button
+                    onClick={toggleRecording}
+                    className={`relative z-10 w-12 h-12 rounded-xl flex items-center justify-center transition-all border ${isRecording ? 'bg-red-500/30 border-red-500 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)] ring-2 ring-red-500/20' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'}`}
+                    title={isRecording ? 'Stop Recording' : 'Start Voice Input'}
+                  >
+                    {isRecording ? <MicOff size={20} className="animate-pulse" /> : <Mic size={20} />}
+                  </button>
+                </div>
               </div>
               <button
                 onClick={() => handleSend()}

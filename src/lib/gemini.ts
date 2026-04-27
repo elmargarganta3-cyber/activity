@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI, Modality, Type, ThinkingLevel } from "@google/genai";
-import { Message, CoachingData, VoiceName } from "../types";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
+import { Message, CoachingData, VoiceName, Scenario } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -16,16 +16,17 @@ export interface CombinedResponse {
   audio: string | null;
 }
 
-export async function getDianaResponseAndAudio(
+export async function getCustomerResponseAndAudio(
   messages: Message[],
-  frustration: number
+  frustration: number,
+  scenario: Scenario
 ): Promise<CombinedResponse> {
   try {
-    // 1. Get text response using the text model (which supports multi-turn)
-    const text = await getDianaResponse(messages, frustration);
+    // 1. Get text response using the text model
+    const text = await getCustomerResponse(messages, frustration, scenario);
     
     // 2. Synthesize audio for that specific response
-    const audio = await generateDianaSpeech(text, frustration);
+    const audio = await generateCustomerSpeech(text, frustration);
 
     return { text, audio };
   } catch (error) {
@@ -37,20 +38,12 @@ export async function getDianaResponseAndAudio(
   }
 }
 
-export async function getDianaResponse(
+export async function getCustomerResponse(
   messages: Message[],
-  frustration: number
+  frustration: number,
+  scenario: Scenario
 ): Promise<string> {
-  const systemInstruction = `
-    You are Diana Reyes, a customer who is furious and distrustful.
-    Stay in character: Defensive, sharp, skeptical of scripts and AI.
-    Current frustration: ${frustration}/100.
-    - If frustration > 80: Be short, aggressive, and sarcastic.
-    - If frustration 50-80: Be impatient and demanding.
-    - If frustration < 50: Start showing slight appreciation but remain cautious.
-    Do NOT be polite until a refund is actually mentioned with a clear timeline.
-    Your specific issue: You cancelled your subscription on the 14th of last month, but were charged twice (sixty dollars total). This is your third time reaching out.
-  `;
+  const systemInstruction = scenario.systemInstruction.replace('{{frustration}}', frustration.toString());
 
   // Format message history for Gemini
   const contents = messages.map(m => ({
@@ -70,20 +63,21 @@ export async function getDianaResponse(
 
     return response.text || "Hello? Are you still there?";
   } catch (error) {
-    console.error("Error getting Diana's response:", error);
+    console.error("Error getting customer response:", error);
     return "I don't have all day. Are you going to help or not?";
   }
 }
 
 export async function getCoachingAnalysis(
-  messages: Message[]
+  messages: Message[],
+  scenario: Scenario
 ): Promise<CoachingData | null> {
   const systemInstruction = `
-    You are a senior customer service coach. Analyze the conversation between an agent and a high-frustration customer (Diana Reyes).
-    Diana is distrustful, hates scripts, and wants a $60 refund for a double charge.
+    You are a senior customer service coach. Analyze the conversation between an agent and a high-frustration customer named ${scenario.customerName}.
+    Context: ${scenario.description}
     
     Return your analysis in JSON format with:
-    1. "frustrationScore": (integer 0-100) reflecting her current mood.
+    1. "frustrationScore": (integer 0-100) reflecting their current mood.
     2. "coachingTip": One brief sentence of advice for the agent.
     3. "suggestions": A list of 3 specific response strings the agent could use next.
   `;
@@ -119,7 +113,7 @@ export async function getCoachingAnalysis(
   }
 }
 
-export async function generateDianaSpeech(
+export async function generateCustomerSpeech(
   text: string,
   mood: number
 ): Promise<string | null> {
